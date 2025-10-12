@@ -1,0 +1,5 @@
+<config>
+    <package_name>flask</package_name>
+    <!-- repository отсутствует -->
+    <mode>offline</mode>
+</config>

@@ -1,0 +1,5 @@
+<config>
+    <package_name>   </package_name>
+    <repository>https://example.com/repo</repository>
+    <mode>test</mode>
+</config>
