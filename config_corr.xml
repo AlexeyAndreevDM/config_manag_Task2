@@ -1,5 +1,5 @@
 <config>
     <package_name>my_package</package_name>
-    <repository>https://example.com/repo</repository>
-    <mode>online</mode>
+    <repository>./test_repo</repository>
+    <mode>local</mode>
 </config>
