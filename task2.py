@@ -27,7 +27,7 @@ def parse_config(config_path: str):
             sys.exit(1)
         text = elem.text
         if text is None or text.strip() == "":
-            print(f"Ошибка: параметр конфигурации <{tag}> пуст или содержит только пробелы", file=sys.stderr)
+            print(f"Ошибка: параметр конфигурации <{tag}> пуст", file=sys.stderr)
             sys.exit(1)
         return text.strip()
 
@@ -56,9 +56,6 @@ def parse_cargo_toml_for_dependencies(cargo_toml_path: str) -> list[str]:
     with open(cargo_toml_path, "r", encoding="utf-8") as f:
         for line in f:
             stripped = line.strip()
-            # Пропускаем пустые строки и комментарии
-            if not stripped or stripped.startswith("#"):
-                continue
 
             # Начало секции зависимостей
             if stripped == "[dependencies]":
