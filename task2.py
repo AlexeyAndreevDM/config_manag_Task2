@@ -2,6 +2,9 @@ import argparse
 import sys
 import os
 import xml.etree.ElementTree as ET
+import urllib.request
+import urllib.error
+import tempfile
 
 
 def parse_config(config_path: str):
@@ -44,40 +47,74 @@ def parse_config(config_path: str):
     }
 
 
-def parse_cargo_toml_for_dependencies(cargo_toml_path: str) -> list[str]:
-    # Убеждаемся,что Cargo.toml существует
-    if not os.path.isfile(cargo_toml_path):
+def download_cargo_toml(url: str) -> str:
+    """
+    Скачивает Cargo.toml по URL и возвращает путь к временному файлу
+    """
+    try:
+        # Скачиваем содержимое
+        with urllib.request.urlopen(url) as response:
+            content = response.read().decode('utf-8')
+        
+        # Создаем временный файл
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as temp_file:
+            temp_file.write(content)
+            return temp_file.name
+            
+    except urllib.error.URLError as e:
+        print(f"Ошибка: не удалось скачать Cargo.toml по URL {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Ошибка при обработке скачанного файла: {e}", file=sys.stderr)
         sys.exit(1)
 
-    dependencies = []          # Список имён зависимостей
-    in_dependencies = False    # находимся ли мы внутри секции dependencies
 
-    # Читаем файл построчно
+def parse_cargo_toml_for_dependencies(cargo_toml_path: str) -> list[str]:
+    """
+    Парсит Cargo.toml файл и возвращает список зависимостей
+    """
+    if not os.path.isfile(cargo_toml_path):
+        print(f"Ошибка: файл Cargo.toml не найден: {cargo_toml_path}", file=sys.stderr)
+        sys.exit(1)
+
+    dependencies = []
+    in_dependencies = False
+    found_sections = []
+
     with open(cargo_toml_path, "r", encoding="utf-8") as f:
         for line in f:
             stripped = line.strip()
 
-            # Начало секции зависимостей
-            if stripped == "[dependencies]":
-                in_dependencies = True
-                continue
-
-            # Вход в другую секцию — выходим из режима зависимостей
-            if stripped.startswith("[") and stripped != "[dependencies]":
-                in_dependencies = False
+            # Находим все секции (строки в квадратных скобках)
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section_name = stripped.strip("[]")
+                found_sections.append(section_name)
+                
+                # Проверяем, является ли это секцией dependencies
+                if section_name == "dependencies":
+                    in_dependencies = True
+                else:
+                    in_dependencies = False
                 continue
 
             # Извлекаем имя зависимости из строки вида "name = ..."
             if in_dependencies and "=" in stripped:
-                dep_name = stripped.split("=", 1)[0].strip()
-                if dep_name:
-                    dependencies.append(dep_name)
+                # Игнорируем комментарии в строке
+                line_without_comment = stripped.split("#")[0].strip()
+                if "=" in line_without_comment:
+                    dep_name = line_without_comment.split("=", 1)[0].strip()
+                    if dep_name and not dep_name.startswith("#"):
+                        dependencies.append(dep_name)
 
+    # Если не нашли зависимостей, возвращаем список секций
+    if not dependencies:
+        return found_sections
+    
     return dependencies
 
 
 # Настраиваем парсер аргументов командной строки
-parser = argparse.ArgumentParser(description="Визуализатор графа зависимостей пакетов (Этап 2)")
+parser = argparse.ArgumentParser(description="Визуализатор графа зависимостей пакетов")
 parser.add_argument("--config", required=True, help="Путь к XML-файлу конфигурации")
 args = parser.parse_args()
 
@@ -87,30 +124,45 @@ package_name = config["package_name"]
 repository = config["repository"]
 mode = config["mode"]
 
-# Проверяем, что режим — только "local"
-if mode != "local":
-    print("Ошибка: на этапе 2 поддерживается только режим 'local'. Укажите <mode>local</mode> в конфигурации.", file=sys.stderr)
+# Обрабатываем в зависимости от режима
+if mode == "local":
+    # Локальный режим - ищем Cargo.toml в файловой системе
+    cargo_path = os.path.join(repository, package_name, "Cargo.toml")
+    if not os.path.isfile(cargo_path):
+        # Если не найден — пробуем в корне репозитория
+        cargo_path = os.path.join(repository, "Cargo.toml")
+        if not os.path.isfile(cargo_path):
+            # Если и там нет — ошибка
+            print(
+                f"Ошибка: не удалось найти файл Cargo.toml для пакета '{package_name}'. "
+                f"Проверьте наличие файла по одному из путей:\n"
+                f"  {os.path.join(repository, package_name, 'Cargo.toml')}\n"
+                f"  {os.path.join(repository, 'Cargo.toml')}",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+elif mode == "remote":
+    # Удаленный режим - скачиваем Cargo.toml по URL
+    cargo_path = download_cargo_toml(repository)
+    
+else:
+    print(f"Ошибка: неизвестный режим работы '{mode}'. Поддерживаются: 'local', 'remote'", file=sys.stderr)
     sys.exit(1)
 
-# Сначала ищем Cargo.toml в подкаталоге с именем пакета
-cargo_path = os.path.join(repository, package_name, "Cargo.toml")
-if not os.path.isfile(cargo_path):
-    # Если не найден — пробуем в корне репозитория
-    cargo_path = os.path.join(repository, "Cargo.toml")
-    if not os.path.isfile(cargo_path):
-        # Если и там нет — ошибка
-        print(
-            f"Ошибка: не удалось найти файл Cargo.toml для пакета '{package_name}'. "
-            f"Проверьте наличие файла по одному из путей:\n"
-            f"  {os.path.join(repository, package_name, 'Cargo.toml')}\n"
-            f"  {os.path.join(repository, 'Cargo.toml')}",
-            file=sys.stderr
-        )
-        sys.exit(1)
+# Получаем список прямых зависимостей или секций
+result = parse_cargo_toml_for_dependencies(cargo_path)
 
-# Получаем список прямых зависимостей
-dependencies = parse_cargo_toml_for_dependencies(cargo_path)
+# Всегда выводим стандартный заголовок
+print("Найденные зависимости в файле:")
 
-# Выводим каждую зависимость - требование 2 этапа
-for dep in dependencies:
-    print(dep)
+# Выводим каждый элемент с маркером
+for item in result:
+    print(f"  - {item}")
+
+# Если использовался временный файл (remote режим) - удаляем его
+if mode == "remote":
+    try:
+        os.unlink(cargo_path)
+    except OSError:
+        pass  # Игнорируем ошибки удаления временного файла

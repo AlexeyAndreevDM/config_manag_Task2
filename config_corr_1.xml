@@ -1,0 +1,5 @@
+<config>
+    <package_name>serde</package_name>
+    <repository>https://raw.githubusercontent.com/serde-rs/serde/master/Cargo.toml</repository>
+    <mode>remote</mode>
+</config>
