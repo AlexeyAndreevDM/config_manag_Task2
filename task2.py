@@ -71,45 +71,40 @@ def download_cargo_toml(url: str) -> str:
 
 def parse_cargo_toml_for_dependencies(cargo_toml_path: str) -> list[str]:
     """
-    Парсит Cargo.toml файл и возвращает список зависимостей
+    Парсит Cargo.toml файл и возвращает список зависимостей из всех секций,
+    содержащих слово 'dependencies' в названии (регистронезависимо)
     """
     if not os.path.isfile(cargo_toml_path):
         print(f"Ошибка: файл Cargo.toml не найден: {cargo_toml_path}", file=sys.stderr)
         sys.exit(1)
 
     dependencies = []
-    in_dependencies = False
-    found_sections = []
+    current_section = None
 
     with open(cargo_toml_path, "r", encoding="utf-8") as f:
         for line in f:
             stripped = line.strip()
-
-            # Находим все секции (строки в квадратных скобках)
-            if stripped.startswith("[") and stripped.endswith("]"):
-                section_name = stripped.strip("[]")
-                found_sections.append(section_name)
-                
-                # Проверяем, является ли это секцией dependencies
-                if section_name == "dependencies":
-                    in_dependencies = True
-                else:
-                    in_dependencies = False
+            
+            # Пропускаем пустые строки и комментарии
+            if not stripped or stripped.startswith("#"):
                 continue
+                
+            # Обнаружение начала новой секции
+            if stripped.startswith("[") and stripped.endswith("]"):
+                current_section = stripped[1:-1].strip()
+                continue
+                
+            # Проверяем, находимся ли мы в секции с зависимостями
+            if current_section and "dependencies" in current_section.lower():
+                # Ищем объявления зависимостей в формате "имя = ..."
+                if "=" in stripped:
+                    # Удаляем комментарии справа от объявления
+                    clean_line = stripped.split("#", 1)[0].strip()
+                    if "=" in clean_line:
+                        dep_name = clean_line.split("=", 1)[0].strip()
+                        if dep_name:
+                            dependencies.append(dep_name)
 
-            # Извлекаем имя зависимости из строки вида "name = ..."
-            if in_dependencies and "=" in stripped:
-                # Игнорируем комментарии в строке
-                line_without_comment = stripped.split("#")[0].strip()
-                if "=" in line_without_comment:
-                    dep_name = line_without_comment.split("=", 1)[0].strip()
-                    if dep_name and not dep_name.startswith("#"):
-                        dependencies.append(dep_name)
-
-    # Если не нашли зависимостей, возвращаем список секций
-    if not dependencies:
-        return found_sections
-    
     return dependencies
 
 
